@@ -11,7 +11,7 @@ exports (Meetup / Luma / ti.to / Google Forms)          synthetic demo data
               model.backends (TabPFN, logistic, history, rule)
                                                      │  P(show) per RSVP
                                                      ▼
-              model.turnout (exact Poisson-binomial headcount distribution)
+              model.turnout (Poisson-binomial mixed over a shared event-day shock)
                     │                                │
         model.backtest (rolling origin)     model.predict.forecast_event → TurnoutForecast
                                                      │
@@ -114,8 +114,11 @@ Juan: the soonest unlabeled event from now on, else the most recent unlabeled on
   interactive license or browser flow.
 
 ### `ilang_pizza.model.turnout`
-- `heads_pmf(probs: np.ndarray, heads: np.ndarray | None = None) -> np.ndarray`: exact
-  Poisson-binomial over integer head weights.
+- `heads_pmf(probs: np.ndarray, heads: np.ndarray | None = None, *, shock_sd: float = 0.0) -> np.ndarray`:
+  exact Poisson-binomial over integer head weights, mixed over a shared logit shock
+  s ~ N(0, shock_sd²) that moves every RSVP's odds together (rain, traffic). `shock_sd = 0`
+  is the plain independent Poisson-binomial. `TurnoutForecast.shock_sd` carries the estimate
+  (maximum likelihood on earlier events' out-of-sample predictions).
 - `add_rsvps(pmf: np.ndarray, probs: np.ndarray, heads: np.ndarray | None = None) -> np.ndarray`
 - `quantile(pmf: np.ndarray, q: float) -> int`, `prob_exceeds(pmf: np.ndarray, k: int) -> float` (P(X > k)),
   `expected(pmf: np.ndarray) -> float`

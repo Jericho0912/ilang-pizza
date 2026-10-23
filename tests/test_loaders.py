@@ -19,6 +19,8 @@ from pandas.testing import assert_frame_equal
 from ilang_pizza.data.loaders import (
     SALT_FILE,
     DataError,
+    _hash_column,
+    _parse_status,
     _parse_timestamps,
     detect_format,
     get_or_create_salt,
@@ -464,6 +466,25 @@ def test_loaded_frames_follow_the_schema(dataset: Dataset) -> None:
     assert dataset.weather is None
     for _, rows in dataset.rsvps.groupby("event_id"):
         assert rows["rsvp_at"].is_monotonic_increasing  # waitlists read as queues
+
+
+def test_text_columns_hold_no_placeholder_strings(dataset: Dataset) -> None:
+    for frame in (dataset.events, dataset.rsvps):
+        for col in frame.columns:
+            if frame[col].dtype == object or pd.api.types.is_string_dtype(frame[col]):
+                assert frame[col].notna().all(), col
+                assert not set(frame[col]) & {"nan", "None", "NaN", "<NA>"}, col
+
+
+def test_blanks_stay_missing_instead_of_turning_into_text() -> None:
+    """On pandas 2, astype(str) writes missing values as "nan"/"None"; none may leak through."""
+    keys = _hash_column(pd.Series(["juan.delacruz@example.com", "", "  "]), "pepper")
+    assert keys.isna().tolist() == [False, True, True]
+    words = pd.Series(["Yes", "No", "declined", "Waiting List"])
+    statuses = _parse_status(words, column="RSVP", where="test")
+    assert statuses.isna().tolist() == [False, True, True, False]
+    stamps = _parse_timestamps(pd.Series(["2026-09-17 18:30", None, np.nan], dtype=object))
+    assert stamps.isna().tolist() == [False, True, True]
 
 
 # --- privacy ----------------------------------------------------------------------------------

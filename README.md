@@ -127,7 +127,7 @@ features per RSVP: lead time · attendee history · payday and petsa de peligro
 TabPFN ──────────► P(show) for each RSVP                      (never leaves the laptop)
       │
       ▼
-Poisson-binomial ► exact headcount distribution: expected, p10 / p50 / p90
+Poisson-binomial ► headcount distribution with event-day swings: expected, p10 / p50 / p90
       │
       ▼
 plan.py ─────────► waitlist release · pizza boxes · seats · e-certificates
@@ -145,10 +145,13 @@ datasets of up to 10,000 samples, and it handles missing values, such as a first
 history or a day with no rain data. Ilang pizza? gives it up to 2,000 past RSVPs as context
 (longer histories are sampled, keeping the class mix), so a forecast stays quick on a laptop.
 
-**The headcount is exact, not simulated.** Each RSVP is a weighted coin, and guests add heads. The
-total of independent, unequal coins follows a Poisson-binomial distribution, computed exactly one
-RSVP at a time. Three RSVPs at 90%, 50% and 20% give 0, 1, 2 or 3 heads with probability 4%, 41%,
-46% and 9%.
+**The headcount is computed, not simulated.** Each RSVP is a weighted coin, and guests add heads.
+If the coins were independent, the total would follow a Poisson-binomial distribution, computed
+exactly one RSVP at a time: three RSVPs at 90%, 50% and 20% give 0, 1, 2 or 3 heads with
+probability 4%, 41%, 46% and 9%. But a downpour or a jammed EDSA moves everyone at once, so the
+distribution is mixed over a shared event-day shock on the odds. How big that shock is gets fitted
+to how far earlier forecasts missed (maximum likelihood on out-of-sample predictions), so the
+ranges are as wide as your own history says they should be.
 
 **The decisions are plain arithmetic** on that distribution, with no model and no LLM, so you can
 check every number by hand:
@@ -263,6 +266,9 @@ situation in mind. This isn't legal advice. When in doubt, stay on v2.
   backtest every few events and watch the most recent ones.
 - **Small communities have small data.** A few dozen events give wide ranges. Trust the p10 to p90
   range, not the single number.
+- **Ranges can still miss.** They include event-day swings, but a model that's biased, say about a
+  holiday it has rarely seen, can still land outside them. The backtest's 80% coverage tells you
+  how often that happens on your data.
 - **The demo is synthetic.** It's PythonPH-shaped but made up, so results on it are not evidence of
   real accuracy.
 - **Walk-ins are invisible.** It forecasts heads among RSVPs and released waitlist spots. People

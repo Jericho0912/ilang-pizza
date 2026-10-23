@@ -102,11 +102,20 @@ def get_or_create_salt(data_dir: Path) -> str:
 
 
 def _hash_column(values: pd.Series, salt: str) -> pd.Series:
-    """Hash every non-blank value; blanks become NaN."""
-    return values.map(lambda v: hash_identity(v, salt) if v.strip() else np.nan).astype("str")
+    """Hash every non-blank value; blanks stay missing (None), never the text "nan"."""
+    return values.map(lambda v: hash_identity(v, salt) if v.strip() else None)
 
 
 # --- reading tables ---------------------------------------------------------------------------
+
+
+def _as_text(values: pd.Series) -> pd.Series:
+    """Values as plain strings, with missing values as "".
+
+    Filling first matters: pandas 2 turns missing values into the text "nan" or "None" on
+    ``astype(str)``, where pandas 3 keeps them missing.
+    """
+    return values.fillna("").astype(str)
 
 
 def _column_key(name: object) -> str:
@@ -160,7 +169,7 @@ def _read_table(path: Path, where: str) -> pd.DataFrame:
     except Exception as err:  # pandas and openpyxl errors are cryptic; say which file failed
         raise DataError(f"Couldn't read {where} as a table: {err}") from err
     table.columns = _unique_headers(table.columns)
-    table = table.apply(lambda col: col.astype("str").str.strip())
+    table = table.apply(lambda col: _as_text(col).str.strip())
     return table[(table != "").any(axis=1)].reset_index(drop=True)
 
 
@@ -197,7 +206,8 @@ _SLASH_DATE = re.compile(r"^\s*(\d{1,2})[/.](\d{1,2})[/.]\d{2,4}\b")
 
 
 def _blank(values: pd.Series) -> pd.Series:
-    return values.str.strip().str.casefold().isin(_BLANK_VALUES)
+    """Empty, missing, or a placeholder such as "N/A" or "-"."""
+    return _as_text(values).str.strip().str.casefold().isin(_BLANK_VALUES)
 
 
 def _parse_timestamps(values: pd.Series) -> pd.Series:
@@ -208,7 +218,7 @@ def _parse_timestamps(values: pd.Series) -> pd.Series:
     offset are Manila local time. Zone names like "PST" are ambiguous (Google means Pacific)
     and are left unreadable rather than guessed.
     """
-    text = values.astype("str").fillna("").str.strip()
+    text = _as_text(values).str.strip()
     text = text.str.replace(
         _GMT_OFFSET, lambda m: f" {m[1]}{int(m[2]):02d}:{m[3] or '00'}", regex=True
     )
@@ -331,7 +341,7 @@ _STATUS_WORDS: dict[str, str | None] = {
 
 
 def _parse_status(values: pd.Series, *, column: str, where: str) -> pd.Series:
-    """Map platform RSVP words to "going"/"waitlist"; dropped RSVPs become NaN."""
+    """Map platform RSVP words to "going"/"waitlist"; dropped RSVPs become missing (None)."""
     keys = values.map(_value_key)
     unknown = sorted(set(keys) - set(_STATUS_WORDS))
     if unknown:
@@ -341,7 +351,7 @@ def _parse_status(values: pd.Series, *, column: str, where: str) -> pd.Series:
             "Yes / No / Waitlist (Meetup), approved / waitlist / declined (Luma), or "
             "going / waitlist (canonical)."
         )
-    return keys.map(_STATUS_WORDS).astype("str")
+    return keys.map(_STATUS_WORDS)
 
 
 # --- export formats ---------------------------------------------------------------------------
@@ -508,7 +518,7 @@ def _identity_columns(
     table: pd.DataFrame, fields: dict[str, tuple[str, ...]], prefix: str = ""
 ) -> tuple[pd.Series, pd.Series]:
     """Raw (email, name) per row; a first + last name pair stands in for a full-name column."""
-    blank = pd.Series("", index=table.index, dtype="str")
+    blank = pd.Series("", index=table.index)
     email_col = _find(table, fields.get(f"{prefix}email", ()))
     name_col = _find(table, fields.get(f"{prefix}name", ()))
     emails = table[email_col] if email_col else blank
@@ -598,7 +608,7 @@ def _meetup_member_ids(table: pd.DataFrame) -> pd.Series:
     The profile URL always holds it; the old "User ID" column says "user 228332596" or a custom
     handle, the newer "Member ID" a bare number.
     """
-    ids = pd.Series("", index=table.index, dtype="str")
+    ids = pd.Series("", index=table.index)
     url_col = _find(table, ("url of member profile",))
     if url_col:
         ids = table[url_col].str.extract(_PROFILE_ID)[0].fillna("")
@@ -611,7 +621,7 @@ def _meetup_member_ids(table: pd.DataFrame) -> pd.Series:
 
 def _platform_status(table: pd.DataFrame, fmt: str, where: str) -> pd.Series:
     """ "going", "waitlist" or NaN (dropped) per row."""
-    going = pd.Series("going", index=table.index, dtype="str")
+    going = pd.Series("going", index=table.index)
     col = _find(table, _FIELDS[fmt].get("status", ()))
     if col is None:  # Google Forms has no status; a ticket without a state is a ticket
         return going
@@ -737,7 +747,7 @@ def _read_checkins(path: Path, salt: str, where: str) -> tuple[set[str], set[str
                 f"Columns seen: {seen}."
             )
         # A bare list with no header row: the "header" is the first person.
-        values = pd.Series([table.columns[0], *table.iloc[:, 0]], dtype="str")
+        values = pd.Series([table.columns[0], *table.iloc[:, 0]])
         is_email = values.str.contains("@", regex=False)
         emails, names = values.where(is_email, ""), values.where(~is_email, "")
     else:
@@ -987,7 +997,7 @@ def canonical_events(events: pd.DataFrame) -> pd.DataFrame:
     """``events`` with the schema's columns and dtypes, ordered by start."""
     out = events.loc[:, EVENT_COLUMNS].copy()
     for col in ("event_id", "title", "series", "venue", "city"):
-        out[col] = out[col].fillna("").astype("str")
+        out[col] = _as_text(out[col])
     out["start"] = _as_manila(out["start"])
     for col in ("latitude", "longitude", "capacity"):
         out[col] = pd.to_numeric(out[col]).astype("float64")
@@ -1004,7 +1014,7 @@ def canonical_rsvps(rsvps: pd.DataFrame, events: pd.DataFrame | None = None) -> 
     """
     out = rsvps.loc[:, RSVP_COLUMNS].copy()
     for col in ("event_id", "attendee_id", "status", "source"):
-        out[col] = out[col].astype("str")
+        out[col] = _as_text(out[col])
     out["rsvp_at"] = _as_manila(out["rsvp_at"])
     out["guests"] = out["guests"].fillna(0).astype("int64")
     out["attended"] = out["attended"].astype("float64")

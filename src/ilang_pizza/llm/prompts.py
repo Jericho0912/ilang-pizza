@@ -21,7 +21,7 @@ import pandas as pd
 
 from ilang_pizza.llm.client import ChatModel, LLMError, parse_json
 from ilang_pizza.model import turnout
-from ilang_pizza.plan import format_php
+from ilang_pizza.plan import format_php, total_heads_pmf
 from ilang_pizza.schema import MANILA_TZ, Draft, EventPlan, TurnoutForecast
 
 log = logging.getLogger(__name__)
@@ -216,10 +216,8 @@ def _facts(event: Mapping, forecast: TurnoutForecast, plan: EventPlan) -> _Facts
     place = _place(event)
     online = bool(event.get("is_online", False)) or not place
     released = min(plan.waitlist_release, len(forecast.waitlist_probs))
-    going = forecast.pmf if forecast.pmf.size else np.ones(1)  # no RSVPs: surely 0 heads
-    total = turnout.add_rsvps(
-        going, forecast.waitlist_probs[:released], forecast.waitlist_heads[:released]
-    )
+    # Same distribution the planner used: released waitlist RSVPs share the event-day shock.
+    total = total_heads_pmf(forecast, released)
     return _Facts(
         title=_text(event.get("title")) or "our next meetup",
         series=_text(event.get("series")),

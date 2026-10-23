@@ -12,6 +12,11 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.13"]
+        pandas: ["latest"]
+        include:
+          # Google Colab still ships pandas 2.2, and the Colab notebook installs on top of it.
+          - python-version: "3.12"
+            pandas: "2.2"
     steps:
       - uses: actions/checkout@v7
 
@@ -27,6 +32,10 @@ jobs:
 
       - name: Install ilang-pizza with dev tools
         run: python -m pip install -e ".[dev]"
+
+      - name: Pin pandas ${{ matrix.pandas }}
+        if: matrix.pandas != 'latest'
+        run: python -m pip install "pandas==${{ matrix.pandas }}.*"
 
       - name: Lint
         run: ruff check .

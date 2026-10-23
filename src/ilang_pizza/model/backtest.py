@@ -1,7 +1,9 @@
 """Rolling-origin backtest: replay past events as if each were the night before.
 
 Every evaluated event is forecast only from events that started before it, by the chosen
-model and three baselines, and each guess is scored against the real check-ins.
+model and three baselines, and each guess is scored against the real check-ins. The chosen
+model's 80% range uses an event-day shock fitted only on the evaluated events before it (or
+the prior while there are too few), so the reported coverage is honest.
 """
 
 from __future__ import annotations
@@ -16,8 +18,10 @@ from ilang_pizza.config import RULE_OF_THUMB_SHOW_RATE
 from ilang_pizza.features import build
 from ilang_pizza.model import turnout
 from ilang_pizza.model.predict import (
+    MIN_SHOCK_EVENTS,
     MIN_TRAIN_EVENTS,
     MIN_TRAIN_RSVPS,
+    PRIOR_SHOCK_SD,
     forecast_event,
     rsvp_heads,
     training_rsvps,
@@ -63,11 +67,16 @@ def backtest(
 
     features = build.build_features(ds, weather=weather)  # leakage-safe, so build once
     rows, model_name = [], ""
+    # Shock log-likelihood summed over the events evaluated so far (out-of-sample by design).
+    loglik = np.zeros(len(turnout.SHOCK_GRID))
     if progress is not None:
         progress(0, len(event_ids))
     for done, event_id in enumerate(event_ids, start=1):
-        row, model_name = _replay(ds, event_id, model_kind, features, rule_rate)
+        enough = len(rows) >= MIN_SHOCK_EVENTS
+        shock_sd = float(turnout.SHOCK_GRID[np.argmax(loglik)]) if enough else PRIOR_SHOCK_SD
+        row, model_name, outcome = _replay(ds, event_id, model_kind, features, rule_rate, shock_sd)
         rows.append(row)
+        loglik += turnout.shock_loglik(*outcome)
         if progress is not None:
             progress(done, len(event_ids))
 
@@ -114,22 +123,32 @@ def score(per_event: pd.DataFrame, main: str) -> pd.DataFrame:
 
 
 def _replay(
-    ds: Dataset, event_id: str, model_kind: str, features: pd.DataFrame, rule_rate: float
-) -> tuple[dict, str]:
-    """One per_event row, scored on the going RSVPs whose attendance is known."""
+    ds: Dataset,
+    event_id: str,
+    model_kind: str,
+    features: pd.DataFrame,
+    rule_rate: float,
+    shock_sd: float,
+) -> tuple[dict, str, tuple[np.ndarray, np.ndarray, int]]:
+    """One per_event row, scored on the going RSVPs whose attendance is known, plus the main
+    model's (probs, heads, actual heads) for fitting the shock of later events."""
     event = ds.event(event_id)
     rsvps = ds.rsvps_for(event_id)
     going = rsvps[rsvps["status"] == "going"]
     known = going["attended"].notna().to_numpy()
     heads = rsvp_heads(going)[known]
+    actual = int(going["attended"].to_numpy()[known] @ heads)
 
-    def forecast(kind: str):
-        return forecast_event(ds, event_id, model_kind=kind, features=features)
+    def forecast(kind: str, shock: float):
+        return forecast_event(ds, event_id, model_kind=kind, features=features, shock_sd=shock)
 
-    main = forecast(model_kind)
-    pmf = turnout.heads_pmf(main.going_probs[known], heads)
+    main = forecast(model_kind, shock_sd)
+    probs = main.going_probs[known]
+    pmf = turnout.heads_pmf(probs, heads, shock_sd=shock_sd)
+    # The baselines only contribute point predictions, so they skip the shock.
     others = {
-        kind: main if kind == model_kind else forecast(kind) for kind in ("logistic", "history")
+        kind: main if kind == model_kind else forecast(kind, 0.0)
+        for kind in ("logistic", "history")
     }
     row = {
         "event_id": event_id,
@@ -137,7 +156,7 @@ def _replay(
         "series": event["series"],
         "start": event["start"],
         "rsvp_heads": int(heads.sum()),
-        "actual_heads": int(going["attended"].to_numpy()[known] @ heads),
+        "actual_heads": actual,
         "model_expected": turnout.expected(pmf),
         "model_p10": turnout.quantile(pmf, 0.10),
         "model_p90": turnout.quantile(pmf, 0.90),
@@ -145,4 +164,4 @@ def _replay(
         "history_pred": float(others["history"].going_probs[known] @ heads),
         "logistic_expected": float(others["logistic"].going_probs[known] @ heads),
     }
-    return row, main.model_name
+    return row, main.model_name, (probs, heads, actual)

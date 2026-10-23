@@ -8,7 +8,7 @@ import pytest
 
 from ilang_pizza.features import build
 from ilang_pizza.features.build import build_features
-from ilang_pizza.model import predict
+from ilang_pizza.model import predict, turnout
 from ilang_pizza.model.predict import explain, forecast_event, informative_columns
 from ilang_pizza.schema import MANILA_TZ, Dataset
 
@@ -86,12 +86,53 @@ def test_no_leakage_from_the_event_itself_or_later_ones(tiny_dataset):
     np.testing.assert_array_equal(before.pmf, after.pmf)
     assert before.historical_show_rate == after.historical_show_rate
     assert before.drivers == after.drivers
+    assert before.shock_sd == after.shock_sd
 
     # The check is sensitive: changing an earlier event does move the forecast.
     earlier = ds.rsvps_for(labeled[2]).index
     flipped = with_attendance(ds, earlier, 1.0 - ds.rsvps.loc[earlier, "attended"])
     moved = forecast_event(flipped, target, model_kind="logistic")
     assert not np.allclose(moved.going_probs, before.going_probs)
+
+
+def test_forecast_estimates_the_event_day_shock(tiny_dataset):
+    event_id = tiny_dataset.upcoming_event_ids()[0]
+    fc = forecast_event(tiny_dataset, event_id, model_kind="logistic")
+    assert fc.shock_sd in turnout.SHOCK_GRID
+    expected = turnout.heads_pmf(fc.going_probs, fc.going_heads, shock_sd=fc.shock_sd)
+    np.testing.assert_allclose(fc.pmf, expected, atol=1e-15)
+
+    calm = forecast_event(tiny_dataset, event_id, model_kind="logistic", shock_sd=0.0)
+    assert calm.shock_sd == 0.0
+    np.testing.assert_array_equal(calm.pmf, turnout.heads_pmf(calm.going_probs, calm.going_heads))
+    wide = forecast_event(tiny_dataset, event_id, model_kind="logistic", shock_sd=1.0)
+    assert wide.p90 - wide.p10 > calm.p90 - calm.p10
+    assert wide.expected == pytest.approx(calm.expected)  # the shock widens, it doesn't shift
+
+
+def test_short_history_uses_the_prior_shock(tiny_dataset):
+    fifth = tiny_dataset.labeled_event_ids()[predict.MIN_SHOCK_EVENTS - 1]  # 4 events before it
+    fc = forecast_event(tiny_dataset, fifth, model_kind="logistic")
+    assert fc.shock_sd == predict.PRIOR_SHOCK_SD
+
+
+def test_shock_is_cached_per_dataset_and_model(tiny_dataset, monkeypatch):
+    monkeypatch.setattr(predict, "_SHOCK_CACHE", {})
+    calls = []
+    real = predict._cross_fitted
+
+    def counting(*args):
+        calls.append(args[2])
+        return real(*args)
+
+    monkeypatch.setattr(predict, "_cross_fitted", counting)
+    event_id = tiny_dataset.upcoming_event_ids()[0]
+    first = forecast_event(tiny_dataset, event_id, model_kind="logistic")
+    again = forecast_event(tiny_dataset, event_id, model_kind="logistic")
+    assert calls == ["logistic"] and again.shock_sd == first.shock_sd
+    forecast_event(tiny_dataset, event_id, model_kind="history")
+    forecast_event(dataclasses.replace(tiny_dataset), event_id, model_kind="logistic")
+    assert calls == ["logistic", "history", "logistic"]
 
 
 def test_needs_enough_history(tiny_dataset):
@@ -281,3 +322,4 @@ def test_forecast_with_tabpfn_v2(tiny_dataset, monkeypatch):
     flipped = with_attendance(ds, later, 1.0 - ds.rsvps.loc[later, "attended"])
     again = forecast_event(flipped, target, model_kind="tabpfn")
     np.testing.assert_array_equal(fc.going_probs, again.going_probs)
+    assert fc.shock_sd in turnout.SHOCK_GRID and again.shock_sd == fc.shock_sd

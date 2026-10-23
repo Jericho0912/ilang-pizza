@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ilang_pizza.model import predict
+from ilang_pizza.features.build import build_features
+from ilang_pizza.model import predict, turnout
 from ilang_pizza.model.backtest import backtest, evaluable_events, score
 
 PER_EVENT_COLUMNS = [
@@ -69,6 +70,29 @@ def test_metrics(logistic_run):
         assert metrics.loc[method, "n_events"] == len(per)
         assert np.isnan(metrics.loc[method, "coverage_80"])
     assert 0 <= metrics.loc["logistic", "coverage_80"] <= 1
+
+
+def test_ranges_use_a_shock_fitted_only_on_earlier_events(tiny_dataset, logistic_run):
+    result, _ = logistic_run
+    features = build_features(tiny_dataset)
+    earlier = []
+    for row in result.per_event.itertuples():
+        going = tiny_dataset.rsvps_for(row.event_id).query("status == 'going'")
+        heads = (1 + going["guests"]).to_numpy()
+        fc = predict.forecast_event(
+            tiny_dataset, row.event_id, model_kind="logistic", features=features, shock_sd=0.0
+        )
+        if len(earlier) < predict.MIN_SHOCK_EVENTS:
+            shock_sd = predict.PRIOR_SHOCK_SD
+        else:
+            shock_sd = turnout.fit_shock_sd(earlier)
+        pmf = turnout.heads_pmf(fc.going_probs, heads, shock_sd=shock_sd)
+        assert (row.model_p10, row.model_p90) == (
+            turnout.quantile(pmf, 0.1),
+            turnout.quantile(pmf, 0.9),
+        ), row.event_id
+        assert row.model_expected == pytest.approx(fc.going_probs @ heads)
+        earlier.append((fc.going_probs, heads, row.actual_heads))
 
 
 def test_progress_is_reported(logistic_run):

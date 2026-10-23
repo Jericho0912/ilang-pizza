@@ -1,7 +1,9 @@
 """Turn a headcount distribution into decisions: waitlist releases, pizza boxes and seats.
 
 Plain arithmetic on the exact distribution from ``model.turnout``. No model and no LLM here,
-so every number in a plan can be checked by hand.
+so every number in a plan can be checked by hand. Released waitlist RSVPs share the event-day
+shock of the forecast (``TurnoutForecast.shock_sd``): if rain keeps people home, it keeps the
+released ones home too.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ import math
 
 import numpy as np
 
-from ilang_pizza.model.turnout import add_rsvps, prob_exceeds, quantile
+from ilang_pizza.model.turnout import Headcount, prob_exceeds, quantile
 from ilang_pizza.schema import EventPlan, PlanInputs, TurnoutForecast
 
 # Seats and e-certificates should be enough 9 times out of 10.
@@ -24,16 +26,17 @@ def make_plan(forecast: TurnoutForecast, inputs: PlanInputs) -> EventPlan:
     """Release the waitlist up to the overflow risk, then size food, seats and certificates."""
     _validate(inputs)
     capacity = _capacity(inputs.capacity)
-    going = forecast.pmf if forecast.pmf.size else np.ones(1)  # no RSVPs: surely 0 heads
+    going = _going(forecast)
 
     released, total, notes = _release_waitlist(forecast, going, capacity, inputs.overflow_risk)
     released_heads = int(forecast.waitlist_heads[:released].sum())
     all_heads = forecast.rsvp_heads + released_heads
 
-    food_heads = quantile(total, inputs.food_quantile)
+    pmf = total.pmf()
+    food_heads = quantile(pmf, inputs.food_quantile)
     boxes = _boxes(food_heads, inputs)
     boxes_naive = _boxes(all_heads, inputs)
-    seats = quantile(total, SEATS_QUANTILE)
+    seats = quantile(pmf, SEATS_QUANTILE)
 
     price = inputs.price_per_box
     cost, cost_naive = (boxes * price, boxes_naive * price) if price > 0 else (0.0, 0.0)
@@ -57,29 +60,42 @@ def make_plan(forecast: TurnoutForecast, inputs: PlanInputs) -> EventPlan:
         seats=seats,
         certificates=seats,
         waitlist_release=released,
-        overflow_probability=prob_exceeds(total, capacity) if capacity is not None else 0.0,
+        overflow_probability=prob_exceeds(pmf, capacity) if capacity is not None else 0.0,
         notes=notes,
     )
 
 
+def total_heads_pmf(forecast: TurnoutForecast, released: int = 0) -> np.ndarray:
+    """P(exactly k heads) once the first ``released`` waitlisted RSVPs are let in.
+
+    The released RSVPs share the forecast's event-day shock with the going ones.
+    """
+    waitlist = forecast.waitlist_probs[:released], forecast.waitlist_heads[:released]
+    return _going(forecast).add(*waitlist).pmf()
+
+
+def _going(forecast: TurnoutForecast) -> Headcount:
+    """The going RSVPs' headcount, ready to take waitlisted RSVPs under the same shock."""
+    return Headcount(forecast.shock_sd).add(forecast.going_probs, forecast.going_heads)
+
+
 def _release_waitlist(
-    forecast: TurnoutForecast, going: np.ndarray, capacity: int | None, risk: float
-) -> tuple[int, np.ndarray, list[str]]:
+    forecast: TurnoutForecast, going: Headcount, capacity: int | None, risk: float
+) -> tuple[int, Headcount, list[str]]:
     """Release in waitlist order while P(heads > capacity) stays within ``risk``.
 
-    Returns how many RSVPs to release, the pmf of total heads afterwards, and a note.
+    Returns how many RSVPs to release, the total headcount afterwards, and a note.
     """
     probs, heads = forecast.waitlist_probs, forecast.waitlist_heads
     waiting = len(probs)
     if capacity is None:
         if not waiting:
             return 0, going, []
-        total = add_rsvps(going, probs, heads)
         note = f"No venue limit set, so release the whole waitlist ({_spots(waiting)})."
-        return waiting, total, [note]
+        return waiting, going.add(probs, heads), [note]
 
     over = f"more than {capacity} people"
-    base_risk = prob_exceeds(going, capacity)
+    base_risk = prob_exceeds(going.pmf(), capacity)
     if base_risk > risk + _RISK_TOLERANCE:
         note = f"the going RSVPs alone have {_chance(base_risk)} of {over} (limit {_pct(risk)})."
         return 0, going, [f"Keep the waitlist closed: {note}" if waiting else f"Heads up: {note}"]
@@ -88,8 +104,8 @@ def _release_waitlist(
 
     total, released, next_risk = going, 0, base_risk
     for p, h in zip(probs, heads):
-        candidate = add_rsvps(total, np.array([p]), np.array([h]))
-        next_risk = prob_exceeds(candidate, capacity)
+        candidate = total.add([p], [h])
+        next_risk = prob_exceeds(candidate.pmf(), capacity)
         if next_risk > risk + _RISK_TOLERANCE:
             break
         total, released = candidate, released + 1
@@ -104,7 +120,8 @@ def _release_waitlist(
     released_heads = int(heads[:released].sum())
     if released_heads != released:
         count += f" ({released_heads} people with guests)"
-    return released, total, [f"Release {count}: {_still(prob_exceeds(total, capacity))} of {over}."]
+    still = _still(prob_exceeds(total.pmf(), capacity))
+    return released, total, [f"Release {count}: {still} of {over}."]
 
 
 def _food_note(boxes: int, boxes_naive: int, food_heads: int, slices_per_person: float) -> str:

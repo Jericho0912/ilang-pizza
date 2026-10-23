@@ -134,6 +134,10 @@ class TurnoutForecast:
     historical_show_rate: float  # share of going heads that showed up across past events
     drivers: list[str] = field(default_factory=list)  # short human-readable notes
     synthetic: bool = False  # True when the training data is the synthetic demo set
+    # Spread of a shared event-day shock on the logit scale (rain, traffic, a rival event): it
+    # moves every RSVP's odds together. 0 means independent RSVPs. ``pmf`` already includes it,
+    # and the planner applies the same shock to released waitlist RSVPs.
+    shock_sd: float = 0.0
 
     @property
     def rsvp_heads(self) -> int:

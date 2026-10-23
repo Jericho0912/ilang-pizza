@@ -5,19 +5,25 @@ import math
 import numpy as np
 import pytest
 
-from ilang_pizza.model.turnout import add_rsvps, expected, heads_pmf, quantile
-from ilang_pizza.plan import format_php, make_plan
+from ilang_pizza.model.turnout import add_rsvps, expected, heads_pmf, prob_exceeds, quantile
+from ilang_pizza.plan import format_php, make_plan, total_heads_pmf
 from ilang_pizza.schema import PlanInputs, TurnoutForecast
 
 
 def make_forecast(
-    going_probs, going_heads=None, waitlist_probs=(), waitlist_heads=None, *, synthetic=False
+    going_probs,
+    going_heads=None,
+    waitlist_probs=(),
+    waitlist_heads=None,
+    *,
+    synthetic=False,
+    shock_sd=0.0,
 ) -> TurnoutForecast:
     gp = np.asarray(going_probs, dtype=float)
     gh = np.ones(gp.size, dtype=int) if going_heads is None else np.asarray(going_heads)
     wp = np.asarray(waitlist_probs, dtype=float)
     wh = np.ones(wp.size, dtype=int) if waitlist_heads is None else np.asarray(waitlist_heads)
-    pmf = heads_pmf(gp, gh)
+    pmf = heads_pmf(gp, gh, shock_sd=shock_sd)
     return TurnoutForecast(
         event_id="pymeets-2026-11",
         model_name="test",
@@ -32,6 +38,7 @@ def make_forecast(
         p90=quantile(pmf, 0.90),
         historical_show_rate=0.5,
         synthetic=synthetic,
+        shock_sd=shock_sd,
     )
 
 
@@ -134,6 +141,46 @@ def test_guests_count_as_heads():
     assert plan.pizza_boxes_naive == math.ceil(7 * 3 / 8)
     assert plan.notes[0] == (
         "Release the 1 waitlist spot (3 people with guests): still no chance of more than 7 people."
+    )
+
+
+def test_overflow_accounts_for_the_shared_shock():
+    # Same RSVPs as test_release_stops_at_the_overflow_risk, but whole events swing: released
+    # RSVPs swing with the going ones, so fewer spots fit within the same 10% risk.
+    going, waiting = [0.5] * 20, [0.5] * 40
+    calm = make_plan(make_forecast(going, waitlist_probs=waiting), PlanInputs(capacity=25))
+    fc = make_forecast(going, waitlist_probs=waiting, shock_sd=0.5)
+    plan = make_plan(fc, PlanInputs(capacity=25))
+
+    assert 0 < plan.waitlist_release < calm.waitlist_release == 22
+    total = heads_pmf([0.5] * (20 + plan.waitlist_release), shock_sd=0.5)
+    assert plan.overflow_probability == pytest.approx(prob_exceeds(total, 25))
+    assert plan.overflow_probability <= 0.10
+    one_more = heads_pmf([0.5] * (21 + plan.waitlist_release), shock_sd=0.5)
+    assert prob_exceeds(one_more, 25) > 0.10
+    # Convolving the released RSVPs in independently would understate the risk.
+    independent = add_rsvps(fc.pmf, [0.5] * plan.waitlist_release)
+    assert prob_exceeds(independent, 25) < plan.overflow_probability
+
+
+def test_food_and_seats_use_the_shared_shock_total():
+    fc = make_forecast([0.6] * 30, waitlist_probs=[0.5] * 6, shock_sd=0.4)
+    plan = make_plan(fc, PlanInputs(capacity=None, food_quantile=0.8))
+    total = heads_pmf([0.6] * 30 + [0.5] * 6, shock_sd=0.4)
+    assert plan.waitlist_release == 6
+    assert plan.food_heads == quantile(total, 0.8)
+    assert plan.seats == plan.certificates == quantile(total, 0.9)
+    calm = make_plan(make_forecast([0.6] * 30, waitlist_probs=[0.5] * 6), PlanInputs())
+    assert plan.seats > calm.seats  # the same expected crowd, a wider range to seat
+
+
+def test_total_heads_pmf_releases_in_waitlist_order():
+    fc = make_forecast([0.7] * 10, waitlist_probs=[0.9, 0.1], waitlist_heads=[2, 1], shock_sd=0.3)
+    np.testing.assert_allclose(total_heads_pmf(fc), fc.pmf, atol=1e-15)
+    np.testing.assert_allclose(
+        total_heads_pmf(fc, released=1),
+        heads_pmf([0.7] * 10 + [0.9], [1] * 10 + [2], shock_sd=0.3),
+        atol=1e-15,
     )
 
 

@@ -253,7 +253,7 @@ def test_written_folder_is_labeled_and_canonical(demo: Dataset, tmp_path: Path) 
 def test_rewriting_a_demo_folder_replaces_old_files(tmp_path: Path) -> None:
     out = tmp_path / "demo"
     write_dataset(make_synthetic_dataset(n_past=6, today=TODAY), out)
-    later = make_synthetic_dataset(n_past=6, today=TODAY + pd.Timedelta(days=90))
+    later = make_synthetic_dataset(n_past=6, today="2026-12-30")  # 90 days later
     write_dataset(later, out)
     assert sorted(p.stem for p in (out / "rsvps").glob("*.csv")) == sorted(
         later.rsvps["event_id"].unique()

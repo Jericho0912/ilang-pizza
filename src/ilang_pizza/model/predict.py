@@ -1,4 +1,4 @@
-"""Forecast one event: P(show) for each RSVP, then the exact headcount distribution.
+"""Forecast one event: P(show) for each RSVP, then the headcount distribution.
 
 The show-up model only ever sees events that started strictly before the event being
 forecast, so forecasting a past event replays what we would have said the night before.
@@ -6,6 +6,7 @@ forecast, so forecasting a past event replays what we would have said the night 
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -25,6 +26,18 @@ if TYPE_CHECKING:
 MIN_TRAIN_EVENTS = 3
 MIN_TRAIN_RSVPS = 50
 
+# The event-day shock (see model.turnout) is fitted on out-of-sample predictions for recent
+# past events. With fewer than MIN_SHOCK_EVENTS of them, we assume a typical swing instead:
+# 0.3 log-odds keeps a 50% show rate within about 43-57% two events in three.
+PRIOR_SHOCK_SD = 0.3
+MIN_SHOCK_EVENTS = 5
+SHOCK_EVENTS = 30  # recent past events to fit it on
+SHOCK_FOLDS = 4
+# TabPFN refits once per fold for this, so those fits read less context with fewer members.
+SHOCK_TABPFN = {"max_context_rows": 1_000, "n_estimators": 2}
+
+_SHOCK_CACHE: dict[tuple, float] = {}
+
 
 def forecast_event(
     ds: Dataset,
@@ -33,11 +46,14 @@ def forecast_event(
     model_kind: str = "tabpfn",
     weather: WeatherProvider | None = None,
     features: pd.DataFrame | None = None,
+    shock_sd: float | None = None,
 ) -> TurnoutForecast:
     """Predict how many heads will show up to ``event_id``, from the events before it.
 
     Waitlisted RSVPs are scored as if released, so the planner can decide how many to let in.
-    Pass ``features`` (from ``build_features``) to reuse them across calls.
+    Pass ``features`` (from ``build_features``) to reuse them across calls. The event-day
+    shock is estimated from past events (see ``estimate_shock_sd``) unless ``shock_sd`` is
+    given.
     """
     event = ds.event(event_id)
     if features is None:
@@ -61,7 +77,9 @@ def forecast_event(
     going_probs, waitlist_probs = probs[: len(going)], probs[len(going) :]
     going_heads = rsvp_heads(going)
 
-    pmf = turnout.heads_pmf(going_probs, going_heads)
+    if shock_sd is None:
+        shock_sd = estimate_shock_sd(ds, past, features[columns], model_kind)
+    pmf = turnout.heads_pmf(going_probs, going_heads, shock_sd=shock_sd)
     return TurnoutForecast(
         event_id=event_id,
         model_name=model.name,
@@ -77,7 +95,49 @@ def forecast_event(
         historical_show_rate=show_rate(past),
         drivers=explain(ds, event, past, features[columns]),
         synthetic=ds.synthetic,
+        shock_sd=shock_sd,
     )
+
+
+def estimate_shock_sd(
+    ds: Dataset, past: pd.DataFrame, features: pd.DataFrame, model_kind: str
+) -> float:
+    """How much whole events swing together, fitted on the recent events in ``past``.
+
+    Event-grouped K-fold cross-fitting with the same kind of model gives each recent event
+    predictions made without its own attendance; the shock is the maximum-likelihood fit to
+    their actual headcounts. Cached per dataset, model, features and training cutoff, so
+    planning the same event again is free (a Dataset must not be modified in place).
+    """
+    starts = past["event_id"].map(ds.events.set_index("event_id")["start"])
+    recent = list(starts.groupby(past["event_id"]).first().sort_values().index[-SHOCK_EVENTS:])
+    if len(recent) < MIN_SHOCK_EVENTS:
+        return PRIOR_SHOCK_SD
+    key = (id(ds), model_kind, tuple(features.columns), starts.max())
+    if key not in _SHOCK_CACHE:
+        cross_fitted = _cross_fitted(past, features, model_kind, recent)
+        _SHOCK_CACHE[key] = turnout.fit_shock_sd(cross_fitted)
+        weakref.finalize(ds, _SHOCK_CACHE.pop, key, None)  # forget it with the dataset
+    return _SHOCK_CACHE[key]
+
+
+def _cross_fitted(
+    past: pd.DataFrame, features: pd.DataFrame, model_kind: str, recent: list[str]
+) -> list[tuple[np.ndarray, np.ndarray, int]]:
+    """(probs, heads, actual heads) per recent event, from a model that never saw it."""
+    categorical = [c for c in build.CATEGORICAL_FEATURES if c in features.columns]
+    cheaper = SHOCK_TABPFN if model_kind.startswith("tabpfn") else {}
+    scored = []
+    for fold in (recent[i::SHOCK_FOLDS] for i in range(SHOCK_FOLDS)):
+        held_out = past["event_id"].isin(fold).to_numpy()
+        model = make_model(model_kind, categorical_features=categorical, **cheaper)
+        model.fit(features.loc[past.index[~held_out]], past["attended"].to_numpy()[~held_out])
+        rows = past[held_out]
+        probs = model.predict_proba(features.loc[rows.index])
+        for at in rows.groupby("event_id").indices.values():
+            heads = rsvp_heads(rows.iloc[at])
+            scored.append((probs[at], heads, int(rows["attended"].to_numpy()[at] @ heads)))
+    return scored
 
 
 def training_rsvps(ds: Dataset, *, before: pd.Timestamp) -> pd.DataFrame:
