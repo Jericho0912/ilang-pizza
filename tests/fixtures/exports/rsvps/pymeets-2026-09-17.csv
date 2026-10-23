@@ -1,0 +1,7 @@
+guest_id,name,first_name,last_name,email,phone_number,created_at,approval_status,checked_in_at,utm_source,qr_code_url,amount,amount_tax,amount_discount,currency,coupon_code,eth_address,solana_address,survey_response_rating,survey_response_feedback,ticket_type_id,ticket_name,Company
+gst-fake0101,Juan Dela Cruz,Juan,Dela Cruz,juan.delacruz@example.com,+639170000001,2026-09-01T02:00:00.000Z,approved,2026-09-17T10:35:12.000Z,,https://luma.com/check-in/evt-fake2?pk=g-fake0101,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake2,General,Example Corp
+gst-fake0101,Juan Dela Cruz,Juan,Dela Cruz,juan.delacruz@example.com,+639170000001,2026-09-01T02:00:00.000Z,approved,,,https://luma.com/check-in/evt-fake2?pk=g-fake0101,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake2,General,Example Corp
+gst-fake0102,Maria Santos,Maria,Santos,maria.santos@example.com,+639170000002,2026-09-02T05:30:00.000Z,approved,,,https://luma.com/check-in/evt-fake2?pk=g-fake0102,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake2,General,Example School
+gst-fake0103,Bea Villanueva,Bea,Villanueva,bea.villanueva@example.com,,2026-09-10T09:00:00.000Z,waitlist,,,https://luma.com/check-in/evt-fake2?pk=g-fake0103,,,,,,,,,,,,
+gst-fake0104,Miguel Torres,Miguel,Torres,miguel.torres@example.org,,2026-09-03T11:11:11.000Z,approved,2026-09-17T10:58:40.000Z,,https://luma.com/check-in/evt-fake2?pk=g-fake0104,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake2,General,
+gst-fake0105,Nina Ramos,Nina,Ramos,nina.ramos@example.com,,2026-09-04T00:00:00.000Z,declined,,,https://luma.com/check-in/evt-fake2?pk=g-fake0105,,,,,,,,,,,,

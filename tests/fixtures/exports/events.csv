@@ -1,0 +1,8 @@
+event_id,title,series,start,venue,city,latitude,longitude,is_online,capacity,food_provided
+pymeets-2026-08-20,Sample PyMeets: Typing in Practice,pymeets,2026-08-20 18:30,"Sponsor office, Ayala Avenue",Makati,14.5547,121.0244,no,60,yes
+pyworks-2026-08-29,Sample PyWorks: Hands-on Data Cleaning,PyWorks,2026-08-29T13:00:00+08:00,UP-Ayala Land TechnoHub,Quezon City,14.6575,121.0570,false,40,true
+wfh-pythonista-2026-09-05,Sample WFH Pythonista: Live Coding,wfh pythonista,2026-09-05 19:00,Zoom,,,,,,
+pymeets-2026-09-17,Sample PyMeets: Async Without Tears,PyMeets,2026-09-17 18:30,"Coworking space, 5th Avenue",Taguig,14.5509,121.0503,0,50,1
+pyworks-2026-09-26,Sample PyWorks: Build a Web Scraper,,2026-09-26 13:00,UP-Ayala Land TechnoHub,Quezon City,14.6575,121.0570,no,,yes
+pymeets-2026-10-15,Sample PyMeets: Faster Pandas,PyMeets,2026-10-15T10:30:00Z,"Sponsor office, Ortigas Center",Pasig,14.5866,121.0614,no,40,yes
+pykids-2026-11-07,Sample PyKids: Turtle Games,PyKids,2026-11-07 14:00,"Community learning center, Diliman",Quezon City,,,,30,

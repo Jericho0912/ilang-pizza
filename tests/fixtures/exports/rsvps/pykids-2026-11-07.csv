@@ -1,0 +1,4 @@
+guest_id,name,first_name,last_name,email,phone_number,created_at,approval_status,checked_in_at,utm_source,qr_code_url,amount,amount_tax,amount_discount,currency,coupon_code,eth_address,solana_address,survey_response_rating,survey_response_feedback,ticket_type_id,ticket_name
+gst-fake0201,Grace Dizon,Grace,Dizon,grace.dizon@example.com,,2026-10-20T01:00:00.000Z,approved,,,https://luma.com/check-in/evt-fake3?pk=g-fake0201,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake3,Parent + kid
+gst-fake0202,Leo Pascual,Leo,Pascual,leo.pascual@example.com,,2026-10-21T02:00:00.000Z,approved,,,https://luma.com/check-in/evt-fake3?pk=g-fake0202,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake3,Parent + kid
+gst-fake0203,Joy Castillo,Joy,Castillo,joy.castillo@example.org,,2026-10-22T03:00:00.000Z,waitlist,,,https://luma.com/check-in/evt-fake3?pk=g-fake0203,,,,,,,,,,,

@@ -1,0 +1,7 @@
+api_id,name,first_name,last_name,email,phone_number,created_at,approval_status,has_joined_event,custom_source,qr_code_url,amount,amount_tax,amount_discount,currency,coupon_code,eth_address,solana_address,survey_response_rating,survey_response_feedback,ticket_type_id,ticket_name,What do you do?
+gst-fake0001,Juan Dela Cruz,Juan,Dela Cruz,Juan.DelaCruz@Example.com,+639170000001,2026-08-20T03:15:00.000Z,approved,Yes,,https://luma.com/check-in/evt-fake?pk=g-fake0001,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake,Free,Student
+gst-fake0002,Ana Reyes ,Ana,Reyes,ana.reyes@example.com,+639170000002,2026-08-21T10:00:00.123Z,approved,No,,https://luma.com/check-in/evt-fake?pk=g-fake0002,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake,Free,Data analyst
+gst-fake0003,Tomas Navarro,Tomas,Navarro,tomas.navarro@example.net,+639170000003,2026-09-04T13:59:59.000Z,approved,Yes,,https://luma.com/check-in/evt-fake?pk=g-fake0003,$0.00,$0.00,$0.00,usd,,,,,,ttype-fake,Free,Teacher
+gst-fake0004,Joy Castillo,Joy,Castillo,joy.castillo@example.org,+639170000004,2026-08-22T01:00:00.000Z,pending_approval,No,,https://luma.com/check-in/evt-fake?pk=g-fake0004,,,,,,,,,,,,Developer
+gst-fake0005,Leo Pascual,Leo,Pascual,leo.pascual@example.com,+639170000005,2026-08-23T01:00:00.000Z,declined,No,,https://luma.com/check-in/evt-fake?pk=g-fake0005,,,,,,,,,,,,Student
+gst-fake0006,Kim Flores,Kim,Flores,kim.flores@example.com,,2026-08-19T00:00:00.000Z,invited,No,,https://luma.com/check-in/evt-fake?pk=g-fake0006,,,,,,,,,,,,

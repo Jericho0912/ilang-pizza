@@ -1,0 +1,29 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Real attendee data never goes in git. Put exports under data/ (see docs/data-guide.md).
+data/*
+!data/README.md
+.ilang-pizza-salt
+*.salt
+
+# Secrets
+.env
+.env.*
+
+# Generated outputs
+outputs/
+.gradio/
+flagged/
